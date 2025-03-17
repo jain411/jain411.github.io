@@ -11,6 +11,9 @@ body {
     max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
 }
 
 header {
@@ -43,7 +46,7 @@ nav ul li a {
 
 .hero {
     background: url('https://source.unsplash.com/1600x900/?technology') center/cover no-repeat;
-    text-align: center;
+    text-align: left;
     color: white;
     padding: 100px 0;
 }
@@ -53,12 +56,12 @@ nav ul li a {
 }
 
 .hero-img {
-    width: 150px;
-    height: 150px;
+    width: 100px; /* Reduced size */
+    height: 100px; /* Maintain aspect ratio */
     border-radius: 50%; /* Makes the image circular */
     object-fit: cover; /* Ensures the image fills the circular frame */
     display: block;
-    margin: 0 auto 20px;
+    margin-right: 20px; /* Adds spacing between image and text */
 }
 
 .section {
