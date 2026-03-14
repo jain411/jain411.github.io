@@ -1,7 +1,9 @@
+<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ page.title | default: site.name }}</title>
+    <title>Kicking off the Performance Architect Transition</title>
     <style>
         :root {
             --bg: #fcfcfc;
@@ -261,3 +263,49 @@
         .post-content pre { background: var(--bg2); padding: 1rem; border-radius: var(--radius-md); overflow-x: auto; margin-bottom: 1.25rem; }
     </style>
 </head>
+<body>
+<div class="site">
+  <nav>
+    <span class="nav-logo">Ritik Jain</span>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/#writing">Writing</a>
+      <a href="/#projects">Projects</a>
+      <a href="/#oss">Open source</a>
+      <a href="/ritik_resume.pdf" target="_blank">Resume ↗</a>
+      <button id="theme-toggle">☀ / ☾</button>
+
+<script>
+    (function() {
+        const btn = document.getElementById('theme-toggle');
+        if (localStorage.getItem('theme') === 'dark') document.body.classList.add('dark-mode');
+        btn.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
+        });
+    })();
+</script>
+    </div>
+  </nav>
+  <a href="/" class="back-link">← Back</a>
+
+<article>
+  <h1>Kicking off the Performance Architect Transition</h1>
+  <div class="post-date">March 10, 2026</div>
+  <div class="post-content">
+    <p>Documenting the official shift from DRAM DV to System-Level Performance Architect. The focus is moving entirely away from low-level RTL verification and UVM/SV toward high-level architectural modeling.</p>
+
+<h3 id="q1-milestone-priorities">Q1 Milestone Priorities</h3>
+<p>The immediate deadline is set for May 10. The core objectives for this phase are:</p>
+<ul>
+  <li>Mastering Modern C++</li>
+  <li>Modeling a fully JEDEC-compliant DRAM Bank state machine</li>
+</ul>
+
+<p>This foundational C++ work will pave the way for the SystemC TLM 2.0 models scheduled for next quarter.</p>
+
+  </div>
+</article>
+</div>
+</body>
+</html>

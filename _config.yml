@@ -1,4 +1,6 @@
-name: Personal Portfolio
-description: System-Level Performance Architect Portfolio and Logs
+name: Ritik Jain
+title: Ritik Jain — Hardware Engineer
+description: Senior DV Engineer at Micron. Writing about DRAM, semiconductor architecture, and my transition to performance architecture.
+url: "https://jain411.github.io"
 markdown: kramdown
-theme: minima
+permalink: /:categories/:year/:month/:day/:title/

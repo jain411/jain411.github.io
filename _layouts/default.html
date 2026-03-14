@@ -2,9 +2,19 @@
 <html lang="en">
 {% include head.html %}
 <body>
-    <div class="container">
-        {% include theme-toggle.html %}
-        {{ content }}
+<div class="site">
+  <nav>
+    <span class="nav-logo">Ritik Jain</span>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/#writing">Writing</a>
+      <a href="/#projects">Projects</a>
+      <a href="/#oss">Open source</a>
+      <a href="/ritik_resume.pdf" target="_blank">Resume ↗</a>
+      {% include theme-toggle.html %}
     </div>
+  </nav>
+  {{ content }}
+</div>
 </body>
 </html>

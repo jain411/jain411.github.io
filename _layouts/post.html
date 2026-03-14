@@ -1,15 +1,12 @@
 ---
 layout: default
 ---
-<a href="/" class="back-link">← Back to Home</a>
+<a href="/" class="back-link">← Back</a>
 
 <article>
-    <h1 style="margin-bottom: 5px;">{{ page.title }}</h1>
-    <div style="color: var(--text-muted); margin-bottom: 30px; font-size: 0.9rem;">
-        {{ page.date | date: "%B %d, %Y" }}
-    </div>
-    
-    <div class="content">
-        {{ content }}
-    </div>
+  <h1>{{ page.title }}</h1>
+  <div class="post-date">{{ page.date | date: "%B %d, %Y" }}</div>
+  <div class="post-content">
+    {{ content }}
+  </div>
 </article>
