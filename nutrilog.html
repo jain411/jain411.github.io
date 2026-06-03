@@ -626,6 +626,26 @@ function nlGeminiText(data) {
     .map(p => p.text)
     .join('');
 }
+function nlParseFoodJson(raw) {
+  const cleaned = raw.replace(/```json|```/g,'').trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    if(Array.isArray(parsed)) return parsed;
+    if(Array.isArray(parsed.items)) return parsed.items;
+    if(Array.isArray(parsed.entries)) return parsed.entries;
+  } catch(e) {
+    const start = cleaned.indexOf('[');
+    const end = cleaned.lastIndexOf(']');
+    if(start !== -1 && end > start) {
+      try {
+        const parsed = JSON.parse(cleaned.slice(start,end+1));
+        if(Array.isArray(parsed)) return parsed;
+      } catch {}
+    }
+    throw new Error('Gemini returned invalid nutrition JSON. Try rephrasing the food entry with quantities.');
+  }
+  throw new Error('Gemini response did not contain a food item array');
+}
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
 function nlShowTab(name) {
@@ -763,13 +783,16 @@ async function nlLogFood() {
     const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-goog-api-key':s.apikey},
-      body:JSON.stringify({contents:[{role:'user',parts}],generationConfig:{temperature:0.1,maxOutputTokens:1000}})
+      body:JSON.stringify({
+        contents:[{role:'user',parts}],
+        generationConfig:{temperature:0.1,maxOutputTokens:1000,responseMimeType:'application/json'}
+      })
     });
     if(!res.ok){const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`);}
     const data=await res.json();
     const raw=nlGeminiText(data);
     if(!raw) throw new Error('No response returned');
-    const entries=JSON.parse(raw.replace(/```json|```/g,'').trim());
+    const entries=nlParseFoodJson(raw);
     if(!Array.isArray(entries)||!entries.length) throw new Error('No food items detected');
     const day=nlGetDay(nlSelKey);
     const t=new Date().toLocaleTimeString('default',{hour:'2-digit',minute:'2-digit'});
