@@ -5,18 +5,7 @@
 {% include head.html %}
 <body>
 <div class="site">
-  <nav>
-    <span class="nav-logo">Ritik Jain</span>
-    <div class="nav-links">
-      <a href="/#writing">Writing</a>
-      <a href="/#projects">Projects</a>
-      <a href="/#oss">Open source</a>
-      <a href="/#now">Now</a>
-      <a href="/ritik_resume.pdf" target="_blank">Resume ↗</a>
-      <a href="/nutrilog/" class="nav-active">NutriLog</a>
-      {% include theme-toggle.html %}
-    </div>
-  </nav>
+  {% include nav.html %}
 
   <!-- NutriLog App -->
   <div id="nutrilog-root">
@@ -683,31 +672,16 @@ async function nlGeminiFoodRequest(apikey, parts, opts={}) {
 async function nlGeminiFoodModelRequest(apikey, parts, model, opts={}) {
   const generationConfig={temperature:0.2,maxOutputTokens:1200,responseMimeType:'application/json'};
   if(!opts.looseJson) generationConfig.responseSchema=nlFoodSchema();
-  const requestBody={
-    contents:[{role:'user',parts}],
-    generationConfig
-  };
-  window.nlDebugGemini = window.nlDebugGemini || {};
-  window.nlDebugGemini.lastRequest = {
-    model,
-    body: requestBody
-  };
-  console.debug('NutriLog Gemini request:', window.nlDebugGemini.lastRequest);
   const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
     method:'POST',
     headers:{'Content-Type':'application/json','x-goog-api-key':apikey},
-    body:JSON.stringify(requestBody)
+    body:JSON.stringify({
+      contents:[{role:'user',parts}],
+      generationConfig
+    })
   });
-  const data=await res.json().catch(()=>({}));
-  window.nlDebugGemini.lastResponse = {
-    model,
-    ok:res.ok,
-    status:res.status,
-    data
-  };
-  console.debug('NutriLog Gemini full response:', window.nlDebugGemini.lastResponse);
-  if(!res.ok){ throw new Error(data.error?.message||`HTTP ${res.status}`); }
-  return nlGeminiText(data);
+  if(!res.ok){const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`);}
+  return nlGeminiText(await res.json());
 }
 async function nlGeminiJsonRepairRequest(apikey, text, onModel) {
   const parts=[{text:`Convert the following nutrition estimate into a valid JSON array only.
@@ -900,7 +874,7 @@ async function nlLogFood() {
       console.warn('NutriLog Gemini malformed response:', raw);
       status.textContent='⏳ Cleaning up Gemini estimate…';
       const repaired=await nlGeminiJsonRepairRequest(s.apikey,`Original food input: ${text||'attached food image'}\n\nMalformed Gemini response:\n${raw||'(empty response)'}`,
-        onModel:model=>{status.textContent=`⏳ Cleaning up with ${model}…`;}
+        model=>{status.textContent=`⏳ Cleaning up with ${model}…`;}
       );
       console.warn('NutriLog Gemini repaired response:', repaired);
       entries=nlParseFoodJson(repaired);
@@ -983,6 +957,11 @@ function nlRenderAnalytics() {
     <div class="nl-kpi"><div class="nl-kpi-val" style="color:var(--nl-accent)">${logged.length}</div><div class="nl-kpi-lbl">days logged</div><div class="nl-kpi-sub">of ${nlRange}</div></div>
     <div class="nl-kpi"><div class="nl-kpi-val" style="color:var(--nl-blue)">${protHit}</div><div class="nl-kpi-lbl">protein goal hit</div><div class="nl-kpi-sub">days</div></div>`;
 
+  if (typeof Chart === 'undefined') {
+    nlToast('Chart.js library is not loaded. Analytics charts are unavailable.');
+    return;
+  }
+
   const labels=days.map(d=>d.date.toLocaleDateString('default',{month:'short',day:'numeric'}));
   const calData=days.map(d=>d.has?Math.round(d.t.cal):null);
   const protData=days.map(d=>d.has?Math.round(d.t.prot):null);
@@ -1022,11 +1001,11 @@ function nlRenderAnalytics() {
 // ── Settings ───────────────────────────────────────────────────────────────
 function nlLoadSettings() {
   const s=nlGetSettings();
-  if(s.apikey) document.getElementById('nl-s-apikey').value=s.apikey;
-  if(s.cal)    document.getElementById('nl-s-cal').value=s.cal;
-  if(s.prot)   document.getElementById('nl-s-prot').value=s.prot;
-  if(s.carb)   document.getElementById('nl-s-carb').value=s.carb;
-  if(s.fat)    document.getElementById('nl-s-fat').value=s.fat;
+  document.getElementById('nl-s-apikey').value = s.apikey || '';
+  document.getElementById('nl-s-cal').value    = s.cal    || '';
+  document.getElementById('nl-s-prot').value   = s.prot   || '';
+  document.getElementById('nl-s-carb').value   = s.carb   || '';
+  document.getElementById('nl-s-fat').value    = s.fat    || '';
 }
 function nlSave() {
   nlSaveSettings({

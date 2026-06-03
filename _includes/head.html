@@ -58,10 +58,12 @@
             border-bottom: 0.5px solid var(--border);
             margin-bottom: 3rem;
         }
-        .nav-logo { font-size: 15px; font-weight: 600; letter-spacing: -0.3px; color: var(--text); }
+        .nav-logo { font-size: 15px; font-weight: 600; letter-spacing: -0.3px; color: var(--text); text-decoration: none; }
+        .nav-logo:hover { color: var(--accent); text-decoration: none; }
         .nav-links { display: flex; gap: 1.5rem; align-items: center; }
         .nav-links a { font-size: 13px; color: var(--muted); }
         .nav-links a:hover { color: var(--text); text-decoration: none; }
+        .nav-links a.nav-active { color: var(--text); font-weight: 600; }
         #theme-toggle {
             background: none;
             border: 0.5px solid var(--border-md);
