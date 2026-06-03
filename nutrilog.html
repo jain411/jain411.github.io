@@ -626,6 +626,52 @@ function nlGeminiText(data) {
     .map(p => p.text)
     .join('');
 }
+function nlFoodSchema() {
+  return {
+    type:'array',
+    items:{
+      type:'object',
+      properties:{
+        name:{type:'string'},
+        cal:{type:'number'},
+        prot:{type:'number'},
+        carb:{type:'number'},
+        fat:{type:'number'},
+        note:{type:'string'}
+      },
+      required:['name','cal','prot','carb','fat']
+    }
+  };
+}
+function nlFoodPrompt(text, hasImage) {
+  return `You are NutriLog's food nutrition estimator.
+
+Goal: Convert casual food diary text into a reasonable calorie and macro estimate. Vague input is normal and expected.
+
+Rules:
+- Return ONLY a JSON array. No markdown, no prose.
+- Each array item must be: {"name":"food + estimated quantity","cal":number,"prot":number,"carb":number,"fat":number,"note":"optional"}
+- Accept vague descriptions like "one bowl poha", "2 rotis sabzi curd", "small plate rice and dal", "paneer sandwich", or "normal lunch".
+- Infer typical serving sizes from common Indian/home-cooked portions when quantity is missing.
+- If a quantity is vague, include the assumed serving in name and set note to "estimated serving".
+- Split clearly separate foods into separate items when useful.
+- Use nutrition label values from the image when an image is attached; otherwise estimate from text.
+- Return [] only when the input is not food at all.
+
+Food input: ${text || (hasImage ? 'Estimate nutrition from this attached food or nutrition-label image.' : '')}`;
+}
+async function nlGeminiFoodRequest(apikey, parts) {
+  const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-goog-api-key':apikey},
+    body:JSON.stringify({
+      contents:[{role:'user',parts}],
+      generationConfig:{temperature:0.2,maxOutputTokens:1200,responseMimeType:'application/json',responseSchema:nlFoodSchema()}
+    })
+  });
+  if(!res.ok){const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`);}
+  return nlGeminiText(await res.json());
+}
 function nlParseFoodJson(raw) {
   const cleaned = raw.replace(/```json|```/g,'').trim();
   if(!cleaned) throw new Error('Gemini returned an empty response. Try the entry again.');
@@ -643,9 +689,21 @@ function nlParseFoodJson(raw) {
         if(Array.isArray(parsed)) return parsed;
       } catch {}
     }
-    throw new Error('Gemini returned invalid nutrition JSON. Try rephrasing the food entry with quantities.');
+    throw new Error('Gemini returned invalid nutrition JSON.');
   }
   throw new Error('Gemini response did not contain a food item array');
+}
+function nlNormalizeEntries(entries) {
+  return entries
+    .filter(e=>e&&e.name)
+    .map(e=>({
+      name:String(e.name),
+      cal:Number(e.cal)||0,
+      prot:Number(e.prot)||0,
+      carb:Number(e.carb)||0,
+      fat:Number(e.fat)||0,
+      note:e.note?String(e.note):undefined
+    }));
 }
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
@@ -780,35 +838,17 @@ async function nlLogFood() {
   try {
     const parts=[];
     if(nlImgB64) parts.push({inline_data:{mime_type:nlImgType||'image/jpeg',data:nlImgB64}});
-    parts.push({text:`You are a precise nutrition extraction assistant. Return ONLY a JSON array with no markdown, no preamble. Each item must use this shape: {"name":"food + quantity","cal":number,"prot":number,"carb":number,"fat":number,"note":"optional"}. If amounts are vague, estimate sensibly and set note to "estimated". If a food label image is provided, read it precisely. Return [] if nothing is food.\n\nFood input: ${text||'Extract nutrition from this food label image.'}`});
-    const foodSchema={
-      type:'array',
-      items:{
-        type:'object',
-        properties:{
-          name:{type:'string'},
-          cal:{type:'number'},
-          prot:{type:'number'},
-          carb:{type:'number'},
-          fat:{type:'number'},
-          note:{type:'string'}
-        },
-        required:['name','cal','prot','carb','fat']
-      }
-    };
-    const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','x-goog-api-key':s.apikey},
-      body:JSON.stringify({
-        contents:[{role:'user',parts}],
-        generationConfig:{temperature:0.1,maxOutputTokens:1000,responseMimeType:'application/json',responseJsonSchema:foodSchema}
-      })
-    });
-    if(!res.ok){const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`);}
-    const data=await res.json();
-    const raw=nlGeminiText(data);
-    if(!raw) throw new Error('No response returned');
-    const entries=nlParseFoodJson(raw);
+    parts.push({text:nlFoodPrompt(text,!!nlImgB64)});
+    const raw=await nlGeminiFoodRequest(s.apikey,parts);
+    let entries;
+    try {
+      entries=nlParseFoodJson(raw);
+    } catch(firstErr) {
+      status.textContent='⏳ Cleaning up Gemini estimate…';
+      const retryParts=[{text:`Return a valid JSON array of nutrition estimates only. Use typical serving sizes if the input is vague. Original food input: ${text||'attached food image'}\n\nPrevious malformed response:\n${raw||'(empty response)'}`}];
+      entries=nlParseFoodJson(await nlGeminiFoodRequest(s.apikey,retryParts));
+    }
+    entries=nlNormalizeEntries(entries);
     if(!Array.isArray(entries)||!entries.length) throw new Error('No food items detected');
     const day=nlGetDay(nlSelKey);
     const t=new Date().toLocaleTimeString('default',{hour:'2-digit',minute:'2-digit'});
