@@ -450,7 +450,7 @@
       <div class="nl-page-sub">Daily food diary · macro tracking · AI analysis</div>
       <button class="nl-api-pill" id="nl-api-pill" onclick="nlShowTab('settings')">
         <span class="nl-dot"></span>
-        <span id="nl-api-text">API not configured</span>
+        <span id="nl-api-text">Gemini API not configured</span>
       </button>
     </div>
 
@@ -550,10 +550,10 @@
     <!-- ── SETTINGS PANEL ── -->
     <div class="nl-panel" id="nl-panel-settings">
       <div class="nl-card" style="max-width:520px;margin-bottom:1.5rem">
-        <div class="nl-section-label">Anthropic API key</div>
+        <div class="nl-section-label">Gemini API key</div>
         <div style="margin-bottom:0.75rem">
           <div class="nl-field-lbl">Key — stored only in this browser's localStorage, never leaves your device</div>
-          <input type="password" class="nl-field-input" id="nl-s-apikey" placeholder="sk-ant-api03-…" style="max-width:400px"/>
+          <input type="password" class="nl-field-input" id="nl-s-apikey" placeholder="AIza…" style="max-width:400px"/>
         </div>
         <button class="nl-save-btn" onclick="nlSave()">Save</button>
         <span class="nl-save-ok" id="nl-ok1">✓ Saved</span>
@@ -618,6 +618,13 @@ function nlTodayKey() { return nlKey(_nlToday.getFullYear(), _nlToday.getMonth()
 function nlSum(data)  {
   if (!data||!data.entries) return {cal:0,prot:0,carb:0,fat:0};
   return data.entries.reduce((a,e)=>({cal:a.cal+(e.cal||0),prot:a.prot+(e.prot||0),carb:a.carb+(e.carb||0),fat:a.fat+(e.fat||0)}),{cal:0,prot:0,carb:0,fat:0});
+}
+function nlGeminiText(data) {
+  return (data.candidates||[])
+    .flatMap(c => c.content?.parts || [])
+    .filter(p => typeof p.text === 'string')
+    .map(p => p.text)
+    .join('');
 }
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
@@ -743,25 +750,25 @@ function nlClearImg() {
 // ── Log food ───────────────────────────────────────────────────────────────
 async function nlLogFood() {
   const s=nlGetSettings();
-  if(!s.apikey){ nlToast('Add your Anthropic API key in Settings'); nlShowTab('settings'); return; }
+  if(!s.apikey){ nlToast('Add your Gemini API key in Settings'); nlShowTab('settings'); return; }
   const text=document.getElementById('nl-input').value.trim();
   if(!text&&!nlImgB64) return;
   const btn=document.getElementById('nl-log-btn');
   const status=document.getElementById('nl-status');
-  btn.disabled=true; status.className='nl-status loading'; status.textContent='⏳ Parsing with Claude…';
+  btn.disabled=true; status.className='nl-status loading'; status.textContent='⏳ Parsing with Gemini…';
   try {
-    const content=[];
-    if(nlImgB64) content.push({type:'image',source:{type:'base64',media_type:nlImgType||'image/jpeg',data:nlImgB64}});
-    content.push({type:'text',text: text||'Extract nutrition from this food label image.'});
-    const sys=`You are a precise nutrition extraction assistant. Return ONLY a JSON array with no markdown, no preamble. Each item: {"name":"food + quantity","cal":number,"prot":number,"carb":number,"fat":number,"note":"optional"}. If amounts are vague, estimate sensibly and set note to "estimated". If a food label image is provided, read it precisely. Return [] if nothing is food.`;
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
+    const parts=[];
+    if(nlImgB64) parts.push({inline_data:{mime_type:nlImgType||'image/jpeg',data:nlImgB64}});
+    parts.push({text:`You are a precise nutrition extraction assistant. Return ONLY a JSON array with no markdown, no preamble. Each item must use this shape: {"name":"food + quantity","cal":number,"prot":number,"carb":number,"fat":number,"note":"optional"}. If amounts are vague, estimate sensibly and set note to "estimated". If a food label image is provided, read it precisely. Return [] if nothing is food.\n\nFood input: ${text||'Extract nutrition from this food label image.'}`});
+    const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',{
       method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':s.apikey,'anthropic-version':'2023-06-01'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,messages:[{role:'user',content}]})
+      headers:{'Content-Type':'application/json','x-goog-api-key':s.apikey},
+      body:JSON.stringify({contents:[{role:'user',parts}],generationConfig:{temperature:0.1,maxOutputTokens:1000}})
     });
     if(!res.ok){const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`);}
     const data=await res.json();
-    const raw=data.content.filter(c=>c.type==='text').map(c=>c.text).join('');
+    const raw=nlGeminiText(data);
+    if(!raw) throw new Error('No response returned');
     const entries=JSON.parse(raw.replace(/```json|```/g,'').trim());
     if(!Array.isArray(entries)||!entries.length) throw new Error('No food items detected');
     const day=nlGetDay(nlSelKey);
@@ -782,7 +789,7 @@ function nlInputKey(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();nlLo
 // ── Insight ────────────────────────────────────────────────────────────────
 async function nlGetInsight() {
   const s=nlGetSettings();
-  if(!s.apikey){nlToast('Add API key in Settings');nlShowTab('settings');return;}
+  if(!s.apikey){nlToast('Add Gemini API key in Settings');nlShowTab('settings');return;}
   const data=nlGetDay(nlSelKey);
   if(!data.entries||!data.entries.length){nlToast('No entries to analyse');return;}
   const box=document.getElementById('nl-insight'); const txt=document.getElementById('nl-insight-text');
@@ -791,13 +798,17 @@ async function nlGetInsight() {
   const goals={cal:s2.cal||2200,prot:s2.prot||160};
   const summary=`Entries: ${data.entries.map(e=>`${e.name} (${e.cal}kcal, ${e.prot}g P)`).join('; ')}. Totals: ${Math.round(t.cal)} kcal, ${Math.round(t.prot)}g protein, ${Math.round(t.carb)}g carbs, ${Math.round(t.fat)}g fat. Goals: ${goals.cal} kcal, ${goals.prot}g protein.`;
   try {
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
+    const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',{
       method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':s.apikey,'anthropic-version':'2023-06-01'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:300,messages:[{role:'user',content:`Food log for a fitness-focused person: ${summary}\n\nGive 3-4 sentences: how did they do on protein and calories, and one concrete actionable suggestion. Be direct.`}]})
+      headers:{'Content-Type':'application/json','x-goog-api-key':s.apikey},
+      body:JSON.stringify({
+        contents:[{role:'user',parts:[{text:`Food log for a fitness-focused person: ${summary}\n\nGive 3-4 sentences: how did they do on protein and calories, and one concrete actionable suggestion. Be direct.`}]}],
+        generationConfig:{temperature:0.4,maxOutputTokens:300}
+      })
     });
+    if(!res.ok){const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`);}
     const d=await res.json();
-    txt.style=''; txt.textContent=d.content?.[0]?.text||'No insight returned.';
+    txt.style=''; txt.textContent=nlGeminiText(d)||'No insight returned.';
   } catch(e){ txt.style=''; txt.textContent='Error: '+e.message; }
 }
 
@@ -897,8 +908,8 @@ function nlSave() {
 }
 function nlUpdateApiPill() {
   const s=nlGetSettings(); const pill=document.getElementById('nl-api-pill'); const txt=document.getElementById('nl-api-text');
-  if(s.apikey){ pill.classList.add('connected'); txt.textContent='API connected'; }
-  else        { pill.classList.remove('connected'); txt.textContent='API not configured'; }
+  if(s.apikey){ pill.classList.add('connected'); txt.textContent='Gemini API connected'; }
+  else        { pill.classList.remove('connected'); txt.textContent='Gemini API not configured'; }
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────
