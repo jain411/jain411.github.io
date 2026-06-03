@@ -628,6 +628,7 @@ function nlGeminiText(data) {
 }
 function nlParseFoodJson(raw) {
   const cleaned = raw.replace(/```json|```/g,'').trim();
+  if(!cleaned) throw new Error('Gemini returned an empty response. Try the entry again.');
   try {
     const parsed = JSON.parse(cleaned);
     if(Array.isArray(parsed)) return parsed;
@@ -780,12 +781,27 @@ async function nlLogFood() {
     const parts=[];
     if(nlImgB64) parts.push({inline_data:{mime_type:nlImgType||'image/jpeg',data:nlImgB64}});
     parts.push({text:`You are a precise nutrition extraction assistant. Return ONLY a JSON array with no markdown, no preamble. Each item must use this shape: {"name":"food + quantity","cal":number,"prot":number,"carb":number,"fat":number,"note":"optional"}. If amounts are vague, estimate sensibly and set note to "estimated". If a food label image is provided, read it precisely. Return [] if nothing is food.\n\nFood input: ${text||'Extract nutrition from this food label image.'}`});
+    const foodSchema={
+      type:'array',
+      items:{
+        type:'object',
+        properties:{
+          name:{type:'string'},
+          cal:{type:'number'},
+          prot:{type:'number'},
+          carb:{type:'number'},
+          fat:{type:'number'},
+          note:{type:'string'}
+        },
+        required:['name','cal','prot','carb','fat']
+      }
+    };
     const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-goog-api-key':s.apikey},
       body:JSON.stringify({
         contents:[{role:'user',parts}],
-        generationConfig:{temperature:0.1,maxOutputTokens:1000,responseMimeType:'application/json'}
+        generationConfig:{temperature:0.1,maxOutputTokens:1000,responseMimeType:'application/json',responseJsonSchema:foodSchema}
       })
     });
     if(!res.ok){const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`);}
