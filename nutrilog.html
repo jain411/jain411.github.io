@@ -683,16 +683,31 @@ async function nlGeminiFoodRequest(apikey, parts, opts={}) {
 async function nlGeminiFoodModelRequest(apikey, parts, model, opts={}) {
   const generationConfig={temperature:0.2,maxOutputTokens:1200,responseMimeType:'application/json'};
   if(!opts.looseJson) generationConfig.responseSchema=nlFoodSchema();
+  const requestBody={
+    contents:[{role:'user',parts}],
+    generationConfig
+  };
+  window.nlDebugGemini = window.nlDebugGemini || {};
+  window.nlDebugGemini.lastRequest = {
+    model,
+    body: requestBody
+  };
+  console.debug('NutriLog Gemini request:', window.nlDebugGemini.lastRequest);
   const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
     method:'POST',
     headers:{'Content-Type':'application/json','x-goog-api-key':apikey},
-    body:JSON.stringify({
-      contents:[{role:'user',parts}],
-      generationConfig
-    })
+    body:JSON.stringify(requestBody)
   });
-  if(!res.ok){const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`);}
-  return nlGeminiText(await res.json());
+  const data=await res.json().catch(()=>({}));
+  window.nlDebugGemini.lastResponse = {
+    model,
+    ok:res.ok,
+    status:res.status,
+    data
+  };
+  console.debug('NutriLog Gemini full response:', window.nlDebugGemini.lastResponse);
+  if(!res.ok){ throw new Error(data.error?.message||`HTTP ${res.status}`); }
+  return nlGeminiText(data);
 }
 async function nlGeminiJsonRepairRequest(apikey, text, onModel) {
   const parts=[{text:`Convert the following nutrition estimate into a valid JSON array only.
