@@ -38,8 +38,7 @@ function verifyJavaScriptSyntax(filePath) {
   }
 }
 
-// Check nutrilog.html
-verifyJavaScriptSyntax('/home/ritik-jain/Documents/Website/nutrilog.html');
+// Check files for script syntax (none for now, but function is defined for future use)
 
 // 2. Run Jekyll Build to check compilation correctness
 console.log('\n🏗️ Running Jekyll build...');
