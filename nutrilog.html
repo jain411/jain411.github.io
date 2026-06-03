@@ -628,18 +628,19 @@ function nlGeminiText(data) {
 }
 function nlFoodSchema() {
   return {
-    type:'array',
+    type:'ARRAY',
     items:{
-      type:'object',
+      type:'OBJECT',
       properties:{
-        name:{type:'string'},
-        cal:{type:'number'},
-        prot:{type:'number'},
-        carb:{type:'number'},
-        fat:{type:'number'},
-        note:{type:'string'}
+        name:{type:'STRING'},
+        cal:{type:'NUMBER'},
+        prot:{type:'NUMBER'},
+        carb:{type:'NUMBER'},
+        fat:{type:'NUMBER'},
+        note:{type:'STRING'}
       },
-      required:['name','cal','prot','carb','fat']
+      required:['name','cal','prot','carb','fat'],
+      propertyOrdering:['name','cal','prot','carb','fat','note']
     }
   };
 }
@@ -671,7 +672,7 @@ async function nlGeminiFoodRequest(apikey, parts, opts={}) {
   for(const model of models) {
     if(opts.onModel) opts.onModel(model);
     try {
-      return await nlGeminiFoodModelRequest(apikey, parts, model);
+      return await nlGeminiFoodModelRequest(apikey, parts, model, opts);
     } catch(e) {
       lastErr=e;
       if(!nlIsRetryableGeminiError(e.message)) throw e;
@@ -679,23 +680,38 @@ async function nlGeminiFoodRequest(apikey, parts, opts={}) {
   }
   throw lastErr;
 }
-async function nlGeminiFoodModelRequest(apikey, parts, model) {
+async function nlGeminiFoodModelRequest(apikey, parts, model, opts={}) {
+  const generationConfig={temperature:0.2,maxOutputTokens:1200,responseMimeType:'application/json'};
+  if(!opts.looseJson) generationConfig.responseSchema=nlFoodSchema();
   const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
     method:'POST',
     headers:{'Content-Type':'application/json','x-goog-api-key':apikey},
     body:JSON.stringify({
       contents:[{role:'user',parts}],
-      generationConfig:{temperature:0.2,maxOutputTokens:1200,responseMimeType:'application/json',responseSchema:nlFoodSchema()}
+      generationConfig
     })
   });
   if(!res.ok){const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`);}
   return nlGeminiText(await res.json());
+}
+async function nlGeminiJsonRepairRequest(apikey, text, onModel) {
+  const parts=[{text:`Convert the following nutrition estimate into a valid JSON array only.
+
+Required item shape:
+{"name":"food + estimated quantity","cal":number,"prot":number,"carb":number,"fat":number,"note":"optional"}
+
+Do not add markdown or explanation. If the estimate is incomplete, infer reasonable values.
+
+Nutrition estimate to repair:
+${text||'(empty response)'}`}];
+  return nlGeminiFoodRequest(apikey,parts,{hasImage:false,onModel,looseJson:true});
 }
 function nlParseFoodJson(raw) {
   const cleaned = raw.replace(/```json|```/g,'').trim();
   if(!cleaned) throw new Error('Gemini returned an empty response. Try the entry again.');
   try {
     const parsed = JSON.parse(cleaned);
+    if(typeof parsed === 'string') return nlParseFoodJson(parsed);
     if(Array.isArray(parsed)) return parsed;
     if(Array.isArray(parsed.items)) return parsed.items;
     if(Array.isArray(parsed.entries)) return parsed.entries;
@@ -866,12 +882,13 @@ async function nlLogFood() {
     try {
       entries=nlParseFoodJson(raw);
     } catch(firstErr) {
+      console.warn('NutriLog Gemini malformed response:', raw);
       status.textContent='⏳ Cleaning up Gemini estimate…';
-      const retryParts=[{text:`Return a valid JSON array of nutrition estimates only. Use typical serving sizes if the input is vague. Original food input: ${text||'attached food image'}\n\nPrevious malformed response:\n${raw||'(empty response)'}`}];
-      entries=nlParseFoodJson(await nlGeminiFoodRequest(s.apikey,retryParts,{
-        hasImage:false,
+      const repaired=await nlGeminiJsonRepairRequest(s.apikey,`Original food input: ${text||'attached food image'}\n\nMalformed Gemini response:\n${raw||'(empty response)'}`,
         onModel:model=>{status.textContent=`⏳ Cleaning up with ${model}…`;}
-      }));
+      );
+      console.warn('NutriLog Gemini repaired response:', repaired);
+      entries=nlParseFoodJson(repaired);
     }
     entries=nlNormalizeEntries(entries);
     if(!Array.isArray(entries)||!entries.length) throw new Error('No food items detected');
