@@ -660,8 +660,27 @@ Rules:
 
 Food input: ${text || (hasImage ? 'Estimate nutrition from this attached food or nutrition-label image.' : '')}`;
 }
-async function nlGeminiFoodRequest(apikey, parts) {
-  const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',{
+function nlIsRetryableGeminiError(msg) {
+  return /high demand|overloaded|temporar|try again|503|429|quota/i.test(msg||'');
+}
+async function nlGeminiFoodRequest(apikey, parts, opts={}) {
+  const models = opts.hasImage
+    ? ['gemini-2.5-flash','gemini-2.0-flash']
+    : ['gemini-2.5-flash','gemini-2.0-flash','gemini-2.0-flash-lite'];
+  let lastErr;
+  for(const model of models) {
+    if(opts.onModel) opts.onModel(model);
+    try {
+      return await nlGeminiFoodModelRequest(apikey, parts, model);
+    } catch(e) {
+      lastErr=e;
+      if(!nlIsRetryableGeminiError(e.message)) throw e;
+    }
+  }
+  throw lastErr;
+}
+async function nlGeminiFoodModelRequest(apikey, parts, model) {
+  const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
     method:'POST',
     headers:{'Content-Type':'application/json','x-goog-api-key':apikey},
     body:JSON.stringify({
@@ -839,14 +858,20 @@ async function nlLogFood() {
     const parts=[];
     if(nlImgB64) parts.push({inline_data:{mime_type:nlImgType||'image/jpeg',data:nlImgB64}});
     parts.push({text:nlFoodPrompt(text,!!nlImgB64)});
-    const raw=await nlGeminiFoodRequest(s.apikey,parts);
+    const raw=await nlGeminiFoodRequest(s.apikey,parts,{
+      hasImage:!!nlImgB64,
+      onModel:model=>{status.textContent=`⏳ Estimating with ${model}…`;}
+    });
     let entries;
     try {
       entries=nlParseFoodJson(raw);
     } catch(firstErr) {
       status.textContent='⏳ Cleaning up Gemini estimate…';
       const retryParts=[{text:`Return a valid JSON array of nutrition estimates only. Use typical serving sizes if the input is vague. Original food input: ${text||'attached food image'}\n\nPrevious malformed response:\n${raw||'(empty response)'}`}];
-      entries=nlParseFoodJson(await nlGeminiFoodRequest(s.apikey,retryParts));
+      entries=nlParseFoodJson(await nlGeminiFoodRequest(s.apikey,retryParts,{
+        hasImage:false,
+        onModel:model=>{status.textContent=`⏳ Cleaning up with ${model}…`;}
+      }));
     }
     entries=nlNormalizeEntries(entries);
     if(!Array.isArray(entries)||!entries.length) throw new Error('No food items detected');
