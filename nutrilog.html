@@ -598,7 +598,18 @@ let nlCharts   = {};
 let nlImgB64   = null, nlImgType = null;
 
 // ── Storage ────────────────────────────────────────────────────────────────
-function nlGetSettings() { try { return JSON.parse(localStorage.getItem('nl_settings')||'{}'); } catch { return {}; } }
+const nlBuildApiKey = "{{ site.gemini_api_key }}";
+function nlGetSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('nl_settings')||'{}');
+    if (!s.apikey && nlBuildApiKey && !nlBuildApiKey.includes('{' + '{')) {
+      s.apikey = nlBuildApiKey;
+    }
+    return s;
+  } catch {
+    return {};
+  }
+}
 function nlSaveSettings(s) { localStorage.setItem('nl_settings', JSON.stringify(s)); }
 function nlGetDay(k)  { try { return JSON.parse(localStorage.getItem('nl_day_'+k)||'{"entries":[]}'); } catch { return {entries:[]}; } }
 function nlPutDay(k,d){ localStorage.setItem('nl_day_'+k, JSON.stringify(d)); }
@@ -654,9 +665,12 @@ function nlIsRetryableGeminiError(msg) {
   return /high demand|overloaded|temporar|try again|503|429|quota/i.test(msg||'');
 }
 async function nlGeminiFoodRequest(apikey, parts, opts={}) {
-  const models = opts.hasImage
-    ? ['gemini-2.5-flash','gemini-2.0-flash']
-    : ['gemini-2.5-flash','gemini-2.0-flash','gemini-2.0-flash-lite'];
+  const models = [
+    'gemini-2.5-flash',
+    'gemini-3.5-flash',
+    'gemini-flash-latest',
+    'gemini-2.0-flash'
+  ];
   let lastErr;
   for(const model of models) {
     if(opts.onModel) opts.onModel(model);
@@ -670,7 +684,7 @@ async function nlGeminiFoodRequest(apikey, parts, opts={}) {
   throw lastErr;
 }
 async function nlGeminiFoodModelRequest(apikey, parts, model, opts={}) {
-  const generationConfig={temperature:0.2,maxOutputTokens:1200,responseMimeType:'application/json'};
+  const generationConfig={temperature:0.2,maxOutputTokens:8192,responseMimeType:'application/json'};
   if(!opts.looseJson) generationConfig.responseSchema=nlFoodSchema();
   const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
     method:'POST',
@@ -695,29 +709,60 @@ Nutrition estimate to repair:
 ${text||'(empty response)'}`}];
   return nlGeminiFoodRequest(apikey,parts,{hasImage:false,onModel,looseJson:true});
 }
-function nlParseFoodJson(raw) {
-  const cleaned = raw.replace(/```json|```/g,'').trim();
-  if(!cleaned) throw new Error('Gemini returned an empty response. Try the entry again.');
+function nlExtractJson(str) {
   try {
-    const parsed = JSON.parse(cleaned);
-    if(typeof parsed === 'string') return nlParseFoodJson(parsed);
-    if(Array.isArray(parsed)) return parsed;
-    if(Array.isArray(parsed.items)) return parsed.items;
-    if(Array.isArray(parsed.entries)) return parsed.entries;
-  } catch(e) {
-    const start = cleaned.indexOf('[');
-    const end = cleaned.lastIndexOf(']');
-    if(start !== -1 && end > start) {
-      try {
-        const parsed = JSON.parse(cleaned.slice(start,end+1));
-        if(Array.isArray(parsed)) return parsed;
-      } catch {}
+    return JSON.parse(str);
+  } catch (e) {}
+
+  const startArr = str.indexOf('[');
+  const startObj = str.indexOf('{');
+  let start = -1;
+  let isArray = false;
+  if (startArr !== -1 && startObj !== -1) {
+    if (startArr < startObj) { start = startArr; isArray = true; }
+    else { start = startObj; isArray = false; }
+  } else if (startArr !== -1) {
+    start = startArr; isArray = true;
+  } else if (startObj !== -1) {
+    start = startObj; isArray = false;
+  }
+  if (start === -1) return null;
+  const endChar = isArray ? ']' : '}';
+  const end = str.lastIndexOf(endChar);
+  if (end === -1 || end < start) return null;
+  try {
+    return JSON.parse(str.slice(start, end + 1));
+  } catch (e) {
+    let substring = str.slice(start, end + 1);
+    substring = substring
+      .replace(/\/\*[\s\S]*?\*\//g, '') 
+      .replace(/\/\/.*/g, '')          
+      .replace(/,\s*([}\]])/g, '$1'); 
+    try {
+      return JSON.parse(substring);
+    } catch (innerErr) {
+      return null;
     }
-    throw new Error('Gemini returned invalid nutrition JSON.');
+  }
+}
+function nlParseFoodJson(raw) {
+  if(!raw || !raw.trim()) throw new Error('Gemini returned an empty response. Try the entry again.');
+  const parsed = nlExtractJson(raw);
+  if (!parsed) throw new Error('Gemini returned invalid nutrition JSON.');
+  if (typeof parsed === 'string') return nlParseFoodJson(parsed);
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed.items)) return parsed.items;
+  if (Array.isArray(parsed.entries)) return parsed.entries;
+  if (Array.isArray(parsed.foods)) return parsed.foods;
+  if (Array.isArray(parsed.food)) return parsed.food;
+  if (Array.isArray(parsed.data)) return parsed.data;
+  if (parsed && typeof parsed === 'object') {
+    if (parsed.name) return [parsed];
   }
   throw new Error('Gemini response did not contain a food item array');
 }
 function nlNormalizeEntries(entries) {
+  if (!Array.isArray(entries)) entries = [];
   return entries
     .filter(e=>e&&e.name)
     .map(e=>({
@@ -913,7 +958,7 @@ async function nlGetInsight() {
       headers:{'Content-Type':'application/json','x-goog-api-key':s.apikey},
       body:JSON.stringify({
         contents:[{role:'user',parts:[{text:`Food log for a fitness-focused person: ${summary}\n\nGive 3-4 sentences: how did they do on protein and calories, and one concrete actionable suggestion. Be direct.`}]}],
-        generationConfig:{temperature:0.4,maxOutputTokens:300}
+        generationConfig:{temperature:0.4,maxOutputTokens:4096}
       })
     });
     if(!res.ok){const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`);}
